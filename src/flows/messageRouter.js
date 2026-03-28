@@ -87,6 +87,16 @@ async function routeMessage(from, text) {
   });
 
   try {
+    // Fast-path: brand-new session + free-form text (not a language choice number).
+    // The user may have sent a question before selecting a language — handle gracefully
+    // by checking for a saved profile or queuing the message for post-language answering.
+    const isNewSession = session.createdAt === session.lastActivityAt;
+    const isLanguageChoice = /^[1-5]$/.test(text.trim());
+    if (isNewSession && !isLanguageChoice) {
+      await handleFreshSessionMessage(from, text, session);
+      return;
+    }
+
     await dispatchToHandler(from, text, session);
   } catch (error) {
     logger.error('Error in message router', {
@@ -96,6 +106,40 @@ async function routeMessage(from, text) {
     });
     await sendMessage(from, ERROR_FALLBACK);
   }
+}
+
+/**
+ * Handles the first message from a brand-new session when the user sent free-form
+ * text instead of picking a language number (1–5).
+ *
+ * Two paths:
+ * - Profile found in Firestore → pre-fill language, skip language selection,
+ *   send privacy notice, then answer the user's question via AI.
+ * - No profile → store the message as pendingMessage and show the language prompt
+ *   so it can be answered once the user picks a language.
+ *
+ * @param {string} from - Sender phone number
+ * @param {string} text - The user's first free-form message
+ * @param {object} session - The freshly created session
+ * @returns {Promise<void>}
+ */
+async function handleFreshSessionMessage(from, text, session) {
+  const profileFound = await loadProfileIntoSession(from, session);
+
+  if (profileFound) {
+    // Returning user — their language is pre-filled from the profile.
+    // Skip the language menu entirely and answer their question directly.
+    const lang = session.language;
+    await sendMessage(from, t('privacyNotice', lang));
+    updateSession(from, { currentState: STATES.AI_CONVERSATION });
+    await handleAiConversation(from, text, getOrCreateSession(from));
+    return;
+  }
+
+  // First-time user — we don't know their language yet.
+  // Park the message so we can answer it once they've selected a language.
+  updateSession(from, { pendingMessage: text });
+  await sendMessage(from, t('welcome', 'en'));
 }
 
 // ---------------------------------------------------------------------------
@@ -194,11 +238,33 @@ async function dispatchToHandler(from, text, session) {
 // Handlers
 // ---------------------------------------------------------------------------
 
-/** Language selection — first message ever */
+/**
+ * Language selection — handles the user's first interaction choosing a language.
+ *
+ * Three paths once a valid language is chosen:
+ * 1. pendingMessage exists → answer queued question immediately (uses 3-msg budget)
+ * 2. Profile found + no pending message → show returning-user prompt
+ * 3. New user + no pending message → show main menu
+ *
+ * If the input is free-form (not 1–5), it means the fresh-session fast-path did not
+ * fire (e.g. the session already existed but language was never set). In this case,
+ * check Firestore; if a profile exists, answer via AI; otherwise re-show the prompt.
+ */
 async function handleLanguageSelection(from, text, session) {
   const lang = resolveLanguageFromInput(text);
 
   if (!lang) {
+    // Free-form text at the language-selection screen.
+    // Try to recover by checking Firestore for a saved language preference.
+    const profileFound = await loadProfileIntoSession(from, session);
+    if (profileFound) {
+      const savedLang = session.language;
+      await sendMessage(from, t('privacyNotice', savedLang));
+      updateSession(from, { currentState: STATES.AI_CONVERSATION });
+      await handleAiConversation(from, text, getOrCreateSession(from));
+      return;
+    }
+    // No profile — re-show language prompt so the user can pick
     await sendMessage(from, t('welcome', 'en'));
     return;
   }
@@ -212,8 +278,18 @@ async function handleLanguageSelection(from, text, session) {
   // Check Firestore for a returning user's saved profile
   const profileFound = await loadProfileIntoSession(from, getOrCreateSession(from));
 
+  // If the user had a message queued before choosing their language, answer it now.
+  // Count: languageSelected (1) + privacyNotice (2) + AI answer (3) — exactly at limit.
+  const currentSession = getOrCreateSession(from);
+  if (currentSession.pendingMessage) {
+    const pending = currentSession.pendingMessage;
+    updateSession(from, { pendingMessage: null, currentState: STATES.AI_CONVERSATION });
+    await handleAiConversation(from, pending, getOrCreateSession(from));
+    return;
+  }
+
   if (profileFound) {
-    return sendReturningUserPrompt(from, lang, getOrCreateSession(from));
+    return sendReturningUserPrompt(from, lang, currentSession);
   }
 
   // New user — show main menu

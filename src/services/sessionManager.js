@@ -2,7 +2,7 @@
  * @file sessionManager.js
  * @description In-memory session store for Kuditax.
  *              Sessions are keyed by WhatsApp phone number (E.164 format).
- *              Each session expires after 30 minutes of inactivity.
+ *              Each session expires after 24 hours of inactivity.
  *              A background cleanup interval sweeps expired sessions every 5 minutes.
  *
  *              IMPORTANT: No PII is persisted beyond this process.
@@ -40,6 +40,7 @@ import { saveProfile, getProfile } from './profileStore.js';
  * @property {Array<{role: string, content: string}>} conversationHistory - Full Claude chat history
  * @property {number} createdAt - Unix timestamp (ms) when session was created
  * @property {number} lastActivityAt - Unix timestamp (ms) of last user message
+ * @property {string|null} pendingMessage - Message queued before language was selected (fresh session fast-path)
  */
 
 // ---------------------------------------------------------------------------
@@ -124,6 +125,7 @@ function createSession(phoneNumber) {
     conversationHistory: [],
     createdAt: now,
     lastActivityAt: now,
+    pendingMessage: null,
   };
 
   sessions.set(phoneNumber, session);
@@ -198,7 +200,7 @@ function getActiveSessionCount() {
 
 /**
  * Sweeps through all sessions and removes any that have been inactive
- * beyond the configured TTL (30 minutes by default).
+ * beyond the configured TTL (24 hours by default).
  * Called on an interval — not meant to be called manually.
  */
 function sweepExpiredSessions() {

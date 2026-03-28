@@ -54,8 +54,9 @@ const config = {
   },
 
   session: {
-    // Sessions expire after 30 minutes of inactivity (in milliseconds)
-    ttlMs: 30 * 60 * 1000,
+    // Sessions expire after 24 hours of inactivity — long enough to survive
+    // a normal day of use without forcing users to restart mid-conversation.
+    ttlMs: 24 * 60 * 60 * 1000,
     // Cleanup interval — sweep expired sessions every 5 minutes
     cleanupIntervalMs: 5 * 60 * 1000,
   },
