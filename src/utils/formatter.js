@@ -25,7 +25,10 @@ function formatNaira(amount) {
 
 /**
  * Parses a user-supplied income string into an integer Naira value.
- * Handles inputs like "3.5m", "3,500,000", "3500000", "₦2m".
+ * Handles inputs like "3.5m", "3,500,000", "3500000", "₦2m", "N400,000".
+ * A leading capital "N" is treated as a Naira symbol when it appears directly
+ * before a digit or space+digit (e.g. "N400k", "N 1,500,000").
+ * Words like "No", "None", "N/A" are NOT affected and still return null.
  * Returns null if the input cannot be parsed into a valid positive number.
  *
  * @param {string} input - Raw user input string
@@ -34,13 +37,26 @@ function formatNaira(amount) {
  * @example
  * parseNairaInput("3.5m")       // 3500000
  * parseNairaInput("₦2,400,000") // 2400000
+ * parseNairaInput("N400,000")   // 400000
+ * parseNairaInput("N2.5m")      // 2500000
+ * parseNairaInput("No")         // null
  * parseNairaInput("abc")        // null
  */
 function parseNairaInput(input) {
   if (typeof input !== 'string') return null;
 
-  // Strip currency symbol, spaces, and commas
-  let cleaned = input.replace(/[₦,\s]/g, '').toLowerCase();
+  // Strip a leading capital "N" only when it is used as a currency prefix
+  // (i.e. "N" immediately followed by a digit or a space then a digit).
+  // This handles "N400,000", "N 1,500,000", "N2.5m" etc.
+  // The check is done BEFORE the general strip so that words like
+  // "No", "None", "N/A" are never accidentally mutated here —
+  // they will fall through and return null as expected.
+  let normalised = /^N[\s\d]/.test(input.trimStart())
+    ? input.trimStart().slice(1)
+    : input;
+
+  // Strip ₦ symbol, commas, and all whitespace
+  let cleaned = normalised.replace(/[₦,\s]/g, '').toLowerCase();
 
   // Handle shorthand multipliers: k = 1,000 | m = 1,000,000 | b = 1,000,000,000
   const MULTIPLIERS = { k: 1_000, m: 1_000_000, b: 1_000_000_000 };
