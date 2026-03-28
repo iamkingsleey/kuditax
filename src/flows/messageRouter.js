@@ -228,7 +228,13 @@ async function handlePrivacyAck(from, text, session) {
   updateSession(from, { currentState: STATES.AWAITING_MENU_CHOICE });
 }
 
-/** Main menu choice dispatcher */
+/**
+ * Main menu choice dispatcher.
+ * Accepts numbered options 1–6 for structured navigation.
+ * Any other input is treated as a free-form tax question and routed directly
+ * to the AI agent — this prevents the bot feeling rigid when users type
+ * naturally instead of picking a number.
+ */
 async function handleMenuChoice(from, text, session) {
   const { language: lang } = session;
   const choice = text.trim();
@@ -262,14 +268,25 @@ async function handleMenuChoice(from, text, session) {
         : t('languageSelected', lang));
       break;
     default:
-      await sendMessage(from, t('unknownChoice', lang));
+      // Free-form question or statement typed at the menu — answer it via AI.
+      // Users shouldn't need to pick a number to get help; any tax question works.
+      updateSession(from, { currentState: STATES.AI_CONVERSATION });
+      await handleAiConversation(from, text, getOrCreateSession(from));
+      await sendMessage(from, "Type *menu* to go back to the main menu anytime. 😊");
   }
 }
 
-/** Employment type selection — routes to correct calculation flow */
-async function handleUserTypeSelection(from, text, session) {
+/**
+ * Starts the correct tax calculation flow for a given user type.
+ * Extracted so both the numeric and the natural-language inference paths
+ * share identical setup logic — single source of truth.
+ *
+ * @param {string} from - Sender phone number
+ * @param {'1'|'2'|'3'} choice - The user type choice
+ * @param {object} session - Current session
+ */
+async function startUserTypeFlow(from, choice, session) {
   const { language: lang } = session;
-  const choice = text.trim();
 
   switch (choice) {
     case '1': // Salaried
@@ -284,9 +301,69 @@ async function handleUserTypeSelection(from, text, session) {
       updateSession(from, { userType: 'business_owner', taxData: { userType: 'business_owner' }, currentState: STATES.FLOW_C_REVENUE });
       await sendMessage(from, t('businessOwnerNote', lang));
       break;
-    default:
-      await sendMessage(from, t('invalidInput', lang));
   }
+}
+
+/**
+ * Infers a user's employment type from natural-language text.
+ * Used when the user describes their work situation instead of picking a number.
+ * Returns the inferred menu option string ('1', '2', or '3'), or null if unclear.
+ *
+ * @param {string} text - Raw user input (any case)
+ * @returns {'1'|'2'|'3'|null}
+ */
+function inferUserTypeFromText(text) {
+  const lower = text.toLowerCase();
+
+  // Option 1 — salaried / PAYE employee
+  const SALARIED_KEYWORDS = [
+    'salary', 'salaried', 'employed', 'work for company', 'work for a company',
+    '9-5', 'nine to five', 'paye', 'my employer', 'i work for',
+  ];
+  if (SALARIED_KEYWORDS.some((kw) => lower.includes(kw))) return '1';
+
+  // Option 2 — self-employed / freelancer / contractor
+  const SELF_EMPLOYED_KEYWORDS = [
+    'freelance', 'freelancer', 'self employed', 'self-employed',
+    'contract', 'myself', 'my own', 'i work for myself', 'i do contract',
+  ];
+  if (SELF_EMPLOYED_KEYWORDS.some((kw) => lower.includes(kw))) return '2';
+
+  // Option 3 — business owner / director / entrepreneur
+  const BUSINESS_OWNER_KEYWORDS = [
+    'business', 'owner', 'company', 'ceo', 'entrepreneur',
+    'oga', 'i own', 'my business', 'director',
+  ];
+  if (BUSINESS_OWNER_KEYWORDS.some((kw) => lower.includes(kw))) return '3';
+
+  return null;
+}
+
+/**
+ * Employment type selection — routes to the correct calculation flow.
+ * Accepts numeric choices 1–3 and natural-language descriptions.
+ * Keyword inference handles "I am a salary earner" or "I work for myself".
+ * Falls back to the AI agent if the input is ambiguous.
+ */
+async function handleUserTypeSelection(from, text, session) {
+  const { language: lang } = session;
+  const choice = text.trim();
+
+  // Numeric choice — direct dispatch
+  if (['1', '2', '3'].includes(choice)) {
+    return startUserTypeFlow(from, choice, session);
+  }
+
+  // Natural language — try to infer the employment type from keywords
+  const inferred = inferUserTypeFromText(text);
+  if (inferred) {
+    return startUserTypeFlow(from, inferred, session);
+  }
+
+  // Ambiguous input — route to AI to clarify and guide the user
+  updateSession(from, { currentState: STATES.AI_CONVERSATION });
+  await handleAiConversation(from, text, getOrCreateSession(from));
+  await sendMessage(from, "Type *menu* to go back to the main menu anytime. 😊");
 }
 
 // ---------------------------------------------------------------------------
