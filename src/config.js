@@ -75,7 +75,7 @@ const config = {
   firebase: {
     // Path to the Firebase service account JSON file.
     // If absent, the app runs in memory-only mode — no profile persistence.
-    serviceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || '',
+    serviceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || null,
   },
 };
 

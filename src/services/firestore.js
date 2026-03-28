@@ -10,7 +10,7 @@
  *  2. Create a new project called "kuditax"
  *  3. Go to Project Settings → Service Accounts
  *  4. Click "Generate New Private Key" — download the JSON file
- *  5. Place it in the Kuditax root folder as "firebase-service-account.json"
+ *  5. Place it in the project root as "firebase-service-account.json"
  *  6. Go to Firestore Database → Create Database → Start in test mode
  *  7. Set FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json in .env
  *
@@ -18,28 +18,25 @@
  * @updated 2026-03-28
  */
 
-import { createRequire } from 'module';
-import { existsSync } from 'fs';
+import admin from 'firebase-admin';
+import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import logger from '../utils/logger.js';
 import config from '../config.js';
-
-// createRequire lets us load CJS modules (firebase-admin) from ESM context
-const require = createRequire(import.meta.url);
 
 /** @type {import('firebase-admin').firestore.Firestore | null} */
 let db = null;
 
 /**
- * Returns a Firestore server timestamp sentinel, or the current Date as a
- * fallback when Firestore is not initialised (should never be needed since
- * all writes are guarded by `if (!db) return` in profileStore).
+ * Returns a Firestore server timestamp sentinel value.
+ * Falls back to the current Date when Firestore is not initialised —
+ * this fallback path is never reached in practice because all writes in
+ * profileStore.js are guarded by `if (!db) return`.
  *
  * @returns {import('firebase-admin').firestore.FieldValue | Date}
  */
 function serverTimestamp() {
   if (!db) return new Date();
-  const admin = require('firebase-admin');
   return admin.firestore.FieldValue.serverTimestamp();
 }
 
@@ -60,11 +57,11 @@ if (!serviceAccountPath) {
     });
   } else {
     try {
-      const admin = require('firebase-admin');
+      // Read and parse the service account JSON from disk
+      const serviceAccount = JSON.parse(readFileSync(absolutePath, 'utf-8'));
 
       // Guard against re-initialisation in hot-reload or test environments
       if (!admin.apps.length) {
-        const serviceAccount = require(absolutePath);
         admin.initializeApp({
           credential: admin.credential.cert(serviceAccount),
         });

@@ -17,6 +17,10 @@ import { getActiveSessionCount } from './services/sessionManager.js';
 
 const app = express();
 
+// Trust the first proxy (ngrok in dev, Render's load balancer in prod)
+// Required to fix ERR_ERL_UNEXPECTED_X_FORWARDED_FOR from express-rate-limit
+app.set('trust proxy', 1);
+
 // ---------------------------------------------------------------------------
 // Raw body capture middleware (must come before express.json)
 // Meta's signature verification requires access to the raw request body.

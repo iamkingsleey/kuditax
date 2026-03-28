@@ -661,16 +661,6 @@ const USER_TYPE_LABELS = {
 };
 
 /**
- * Maps a saved userType to the first question state and translation key
- * so the returning user can jump straight into their flow without re-selecting.
- */
-const PROFILE_FLOW_MAP = {
-  salaried:       { state: STATES.FLOW_A_GROSS_INCOME,  questionKey: 'askGrossIncome' },
-  self_employed:  { state: STATES.FLOW_B_TOTAL_INCOME,  questionKey: 'askSelfEmployedIncome' },
-  business_owner: { state: STATES.FLOW_C_REVENUE,       questionKey: 'businessOwnerNote' },
-};
-
-/**
  * Sends the welcome-back prompt to a returning user.
  * Called from handleLanguageSelection when a saved profile is found.
  *
@@ -681,11 +671,12 @@ const PROFILE_FLOW_MAP = {
 async function sendReturningUserPrompt(from, lang, session) {
   const typeLabel = USER_TYPE_LABELS[session.userType] ?? 'a returning user';
   const message = [
-    `Welcome back! 👋 I have your previous preferences saved.`,
+    `Welcome back! 👋 I have your profile saved from last time.`,
     ``,
-    `Last time you were *${typeLabel}*.`,
+    `You were *${typeLabel}*.`,
     ``,
-    `Has anything changed? Reply *yes* to update your profile or *no* to jump straight to your tax calculation.`,
+    `Has anything changed?`,
+    `Reply *yes* to start fresh or *no* to continue.`,
   ].join('\n');
 
   await sendMessage(from, message);
@@ -694,18 +685,18 @@ async function sendReturningUserPrompt(from, lang, session) {
 
 /**
  * Handles the returning user's yes/no reply to the profile-confirm prompt.
- * - "yes" → clear saved userType, go to user type selection
- * - "no"  → use saved userType, jump to the first income question for their flow
+ * - "yes" → clear saved userType, go to user type selection (start fresh)
+ * - "no"  → keep pre-filled userType, go to main menu (continue)
  *
  * @param {string} from - Sender phone number
  * @param {string} text - User's reply
  * @param {object} session - Current session
  */
 async function handleProfileConfirm(from, text, session) {
-  const { language: lang, userType } = session;
+  const { language: lang } = session;
   const lower = text.toLowerCase().trim();
 
-  // "yes" — user wants to update their employment type
+  // "yes" — user wants to start fresh, reset their saved profile choices
   const wantsUpdate = ['yes', 'yeah', 'yep', 'ok', 'okay', 'sure', 'ee', 'eh', 'bẹ́ẹ̀ni', 'oya'].some(
     (kw) => lower.includes(kw),
   );
@@ -720,20 +711,9 @@ async function handleProfileConfirm(from, text, session) {
     return;
   }
 
-  // "no" — user wants to continue with their saved profile
-  const flowEntry = PROFILE_FLOW_MAP[userType];
-
-  if (!flowEntry) {
-    // Saved userType is unrecognised — fall back to normal menu
-    logger.warn('Unknown userType in saved profile — falling back to menu', { userType });
-    return handleMenuReset(from, session);
-  }
-
-  updateSession(from, {
-    taxData:      { userType },
-    currentState: flowEntry.state,
-  });
-  await sendMessage(from, t(flowEntry.questionKey, lang));
+  // "no" — continue with the pre-filled profile; go to main menu
+  // userType is already set on the session by loadProfileIntoSession
+  return handleMenuReset(from, session);
 }
 
 // ---------------------------------------------------------------------------
@@ -758,7 +738,7 @@ async function handleErasureRequest(from) {
 
   await sendMessage(
     from,
-    '✅ Done. Your saved profile has been permanently deleted. Kuditax no longer holds any information about you.',
+    '✅ Done. Your saved profile has been permanently deleted from Kuditax. We no longer hold any information about you.',
   );
 }
 
