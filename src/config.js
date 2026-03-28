@@ -71,6 +71,12 @@ const config = {
     splitDelayMs: 500,         // Delay between multi-part messages (ms)
     maxMessagesPerResponse: 3, // Never send more than 3 messages in one response
   },
+
+  firebase: {
+    // Path to the Firebase service account JSON file.
+    // If absent, the app runs in memory-only mode — no profile persistence.
+    serviceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || '',
+  },
 };
 
 export default config;

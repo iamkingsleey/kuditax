@@ -14,6 +14,7 @@
 import config from '../config.js';
 import logger from '../utils/logger.js';
 import { maskPhoneNumber } from '../utils/formatter.js';
+import { saveProfile, getProfile } from './profileStore.js';
 
 /**
  * @typedef {Object} TaxData
@@ -82,6 +83,9 @@ const STATES = {
 
   // Filing pack offer sent — awaiting user's yes/no response
   AWAITING_FILING_PACK:   'AWAITING_FILING_PACK',
+
+  // Returning user detected — awaiting confirmation to use saved profile or update
+  AWAITING_PROFILE_CONFIRM: 'AWAITING_PROFILE_CONFIRM',
 };
 
 // ---------------------------------------------------------------------------
@@ -221,6 +225,71 @@ const cleanupInterval = setInterval(sweepExpiredSessions, config.session.cleanup
 // Prevent the interval from keeping the Node process alive when tests finish
 cleanupInterval.unref();
 
+// ---------------------------------------------------------------------------
+// Firestore Profile Integration
+// ---------------------------------------------------------------------------
+
+/**
+ * Loads a returning user's saved Firestore profile into their in-memory session.
+ * Pre-fills language, userType, and deductionProfile so the bot can offer a
+ * faster path through the flow on repeat visits.
+ *
+ * Silently returns false if no profile exists or Firestore is unavailable —
+ * the caller should treat this as a first-time user.
+ *
+ * @param {string} phone - E.164 phone number
+ * @param {Session} session - The newly created session to populate
+ * @returns {Promise<boolean>} True if a profile was found and loaded
+ */
+async function loadProfileIntoSession(phone, session) {
+  const profile = await getProfile(phone);
+  if (!profile) return false;
+
+  // Pre-fill non-financial preferences from the saved profile
+  session.language = profile.language;
+  session.userType = profile.userType;
+  session.taxData.userType = profile.userType;
+
+  // Store the saved deduction booleans so the flow can reference them
+  session.taxData.savedDeductionProfile = profile.deductionProfile ?? null;
+
+  logger.info('Returning user profile loaded into session', {
+    from: maskPhoneNumber(phone),
+    userType: profile.userType,
+  });
+
+  return true;
+}
+
+/**
+ * Extracts non-financial profile data from the session and saves it to Firestore.
+ * Called after a successful tax calculation (fire-and-forget — never awaited by
+ * the caller so it cannot delay the WhatsApp response).
+ *
+ * Only saves boolean deduction choices — never income figures or tax amounts.
+ *
+ * @param {string} phone - E.164 phone number
+ * @param {Session} session - Current session with completed taxData
+ * @returns {Promise<void>}
+ */
+async function persistSessionProfile(phone, session) {
+  const { language, userType, taxData } = session;
+
+  // Do not persist incomplete sessions — both fields are required for a useful profile
+  if (!language || !userType) return;
+
+  // Derive boolean flags from taxData — NEVER include income amounts
+  const deductionProfile = {
+    // customPension: null = auto-calculated (yes), 0 = opted out (no)
+    hasPension:       taxData.customPension !== 0,
+    hasNhf:           taxData.hasNhf === true,
+    hasLifeAssurance: (taxData.lifeAssurancePremium ?? 0) > 0,
+    hasRentRelief:    (taxData.annualRent ?? 0) > 0,
+  };
+
+  await saveProfile(phone, { language, userType, deductionProfile });
+}
+
 export {
   STATES,
   createSession,
@@ -229,4 +298,6 @@ export {
   deleteSession,
   getActiveSessionCount,
   sweepExpiredSessions,
+  loadProfileIntoSession,
+  persistSessionProfile,
 };

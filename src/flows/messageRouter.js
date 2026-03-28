@@ -13,7 +13,11 @@ import {
   STATES,
   getOrCreateSession,
   updateSession,
+  deleteSession,
+  loadProfileIntoSession,
+  persistSessionProfile,
 } from '../services/sessionManager.js';
+import { deleteProfile } from '../services/profileStore.js';
 import { sendMessage, sendDocument } from '../services/whatsapp.js';
 import { getAgentReply } from '../services/claudeAgent.js';
 import { calculateSalaryTax } from '../services/taxCalculator.js';
@@ -107,16 +111,27 @@ async function routeMessage(from, text) {
  * @returns {Promise<void>}
  */
 async function dispatchToHandler(from, text, session) {
+  // Lowercase once — reused by all global overrides below
+  const lower = text.toLowerCase();
+
   // Global override: "menu" keyword always returns to main menu
-  if (text.toLowerCase() === 'menu' && session.currentState !== STATES.AWAITING_LANGUAGE) {
+  if (lower === 'menu' && session.currentState !== STATES.AWAITING_LANGUAGE) {
     return handleMenuReset(from, session);
+  }
+
+  // Global override: NDPA 2023 right to erasure — honour immediately on any request
+  const ERASURE_PHRASES = ['delete my data', 'forget me', 'remove my data', 'clear my data'];
+  if (
+    ERASURE_PHRASES.some((phrase) => lower.includes(phrase)) &&
+    session.currentState !== STATES.AWAITING_LANGUAGE
+  ) {
+    return handleErasureRequest(from);
   }
 
   // Global PDF/filing pack intercept — fires at any state where the user has a
   // completed calculation. Allows "send pdf", "filing pack", "share summary" etc.
   // at any point in the conversation without needing to re-run the flow.
   const PDF_STATES_EXCLUDED = [STATES.AWAITING_LANGUAGE, STATES.AWAITING_PRIVACY_ACK];
-  const lower = text.toLowerCase();
   const isPdfKeyword = lower.includes('pdf') || lower.includes('filing pack') || lower.includes('share summary');
   if (
     isPdfKeyword &&
@@ -163,6 +178,9 @@ async function dispatchToHandler(from, text, session) {
     // Filing pack offer sent — awaiting user choice
     case STATES.AWAITING_FILING_PACK:  return handleFilingPackChoice(from, text, session);
 
+    // Returning user — awaiting confirmation to use saved profile or update
+    case STATES.AWAITING_PROFILE_CONFIRM: return handleProfileConfirm(from, text, session);
+
     default:
       logger.warn('Unknown session state — resetting', {
         from: maskPhoneNumber(from),
@@ -181,18 +199,24 @@ async function handleLanguageSelection(from, text, session) {
   const lang = resolveLanguageFromInput(text);
 
   if (!lang) {
-    // Send the welcome message again with the language menu
     await sendMessage(from, t('welcome', 'en'));
     return;
   }
 
   updateSession(from, { language: lang });
 
-  // Send language confirmation + privacy notice
+  // Always show privacy notice — required by NDPA 2023 at the start of every session
   await sendMessage(from, t('languageSelected', lang));
   await sendMessage(from, t('privacyNotice', lang));
 
-  updateSession(from, { currentState: STATES.AWAITING_PRIVACY_ACK });
+  // Check Firestore for a returning user's saved profile
+  const profileFound = await loadProfileIntoSession(from, getOrCreateSession(from));
+
+  if (profileFound) {
+    return sendReturningUserPrompt(from, lang, getOrCreateSession(from));
+  }
+
+  // New user — show main menu
   await sendMessage(from, t('mainMenu', lang));
   updateSession(from, { currentState: STATES.AWAITING_MENU_CHOICE });
 }
@@ -616,6 +640,126 @@ async function deliverFilingPack(from, lang, taxResult) {
   await sendMessage(from, t('taxProMaxGuide', lang));
   updateSession(from, { currentState: STATES.AWAITING_MENU_CHOICE });
   await sendMessage(from, t('backToMenu', lang));
+
+  // Fire-and-forget: persist the user's preference profile to Firestore.
+  // Never awaited — must not delay the WhatsApp response under any circumstance.
+  persistSessionProfile(from, getOrCreateSession(from)).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
+// Returning User Flow
+// ---------------------------------------------------------------------------
+
+/**
+ * Human-readable label for each userType, used in the returning-user prompt.
+ * Centralised here so it's easy to update.
+ */
+const USER_TYPE_LABELS = {
+  salaried:       'a salaried employee',
+  self_employed:  'a freelancer / self-employed',
+  business_owner: 'a business owner',
+};
+
+/**
+ * Maps a saved userType to the first question state and translation key
+ * so the returning user can jump straight into their flow without re-selecting.
+ */
+const PROFILE_FLOW_MAP = {
+  salaried:       { state: STATES.FLOW_A_GROSS_INCOME,  questionKey: 'askGrossIncome' },
+  self_employed:  { state: STATES.FLOW_B_TOTAL_INCOME,  questionKey: 'askSelfEmployedIncome' },
+  business_owner: { state: STATES.FLOW_C_REVENUE,       questionKey: 'businessOwnerNote' },
+};
+
+/**
+ * Sends the welcome-back prompt to a returning user.
+ * Called from handleLanguageSelection when a saved profile is found.
+ *
+ * @param {string} from - Sender phone number
+ * @param {string} lang - Language code
+ * @param {object} session - Session pre-populated by loadProfileIntoSession
+ */
+async function sendReturningUserPrompt(from, lang, session) {
+  const typeLabel = USER_TYPE_LABELS[session.userType] ?? 'a returning user';
+  const message = [
+    `Welcome back! 👋 I have your previous preferences saved.`,
+    ``,
+    `Last time you were *${typeLabel}*.`,
+    ``,
+    `Has anything changed? Reply *yes* to update your profile or *no* to jump straight to your tax calculation.`,
+  ].join('\n');
+
+  await sendMessage(from, message);
+  updateSession(from, { currentState: STATES.AWAITING_PROFILE_CONFIRM });
+}
+
+/**
+ * Handles the returning user's yes/no reply to the profile-confirm prompt.
+ * - "yes" → clear saved userType, go to user type selection
+ * - "no"  → use saved userType, jump to the first income question for their flow
+ *
+ * @param {string} from - Sender phone number
+ * @param {string} text - User's reply
+ * @param {object} session - Current session
+ */
+async function handleProfileConfirm(from, text, session) {
+  const { language: lang, userType } = session;
+  const lower = text.toLowerCase().trim();
+
+  // "yes" — user wants to update their employment type
+  const wantsUpdate = ['yes', 'yeah', 'yep', 'ok', 'okay', 'sure', 'ee', 'eh', 'bẹ́ẹ̀ni', 'oya'].some(
+    (kw) => lower.includes(kw),
+  );
+
+  if (wantsUpdate) {
+    updateSession(from, {
+      userType: null,
+      taxData:  { userType: null },
+      currentState: STATES.AWAITING_USER_TYPE,
+    });
+    await sendMessage(from, t('askUserType', lang));
+    return;
+  }
+
+  // "no" — user wants to continue with their saved profile
+  const flowEntry = PROFILE_FLOW_MAP[userType];
+
+  if (!flowEntry) {
+    // Saved userType is unrecognised — fall back to normal menu
+    logger.warn('Unknown userType in saved profile — falling back to menu', { userType });
+    return handleMenuReset(from, session);
+  }
+
+  updateSession(from, {
+    taxData:      { userType },
+    currentState: flowEntry.state,
+  });
+  await sendMessage(from, t(flowEntry.questionKey, lang));
+}
+
+// ---------------------------------------------------------------------------
+// Right to Erasure
+// ---------------------------------------------------------------------------
+
+/**
+ * Handles a user's NDPA 2023 right-to-erasure request.
+ * Deletes their Firestore profile (fire-and-forget) and their in-memory session,
+ * then sends a confirmation message.
+ *
+ * @param {string} from - Sender phone number
+ * @returns {Promise<void>}
+ */
+async function handleErasureRequest(from) {
+  // NDPA 2023 — right to erasure: delete both persistent and in-memory data
+  deleteProfile(from).catch(() => {}); // fire-and-forget, never let it crash
+
+  deleteSession(from);
+
+  logger.info('User data erased on request', { from: maskPhoneNumber(from) });
+
+  await sendMessage(
+    from,
+    '✅ Done. Your saved profile has been permanently deleted. Kuditax no longer holds any information about you.',
+  );
 }
 
 // ---------------------------------------------------------------------------
