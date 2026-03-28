@@ -78,4 +78,32 @@ function formatRate(rate) {
   return `${Math.round(rate * 100)}%`;
 }
 
-export { formatNaira, parseNairaInput, maskPhoneNumber, formatRate };
+/**
+ * Checks whether a user's input represents a negative/zero answer to an optional question.
+ * Used for optional allowance questions (housing, transport, rent, life assurance) where
+ * users naturally reply "no", "none", "nah", etc. instead of typing "0".
+ *
+ * @param {string} text - Raw user input
+ * @returns {boolean} True if the input means "none / zero / not applicable"
+ *
+ * @example
+ * isNegativeAnswer("no")       // true
+ * isNegativeAnswer("None")     // true
+ * isNegativeAnswer("nah")      // true
+ * isNegativeAnswer("mba")      // true  (Igbo)
+ * isNegativeAnswer("babu")     // true  (Hausa)
+ * isNegativeAnswer("3500000")  // false
+ */
+function isNegativeAnswer(text) {
+  if (typeof text !== 'string') return false;
+
+  const NEGATIVE_ANSWERS = new Set([
+    'no', 'none', 'nope', 'nil', 'nill', 'nothing',
+    "i don't", "i don't have", 'zero', '0',
+    'na', 'nah', 'mba', "a'a", 'bẹ́ẹ̀kọ', 'babu', 'oya no',
+  ]);
+
+  return NEGATIVE_ANSWERS.has(text.trim().toLowerCase());
+}
+
+export { formatNaira, parseNairaInput, maskPhoneNumber, formatRate, isNegativeAnswer };

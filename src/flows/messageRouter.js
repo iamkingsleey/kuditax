@@ -19,9 +19,8 @@ import { getAgentReply } from '../services/claudeAgent.js';
 import { calculateSalaryTax } from '../services/taxCalculator.js';
 import { buildTipsMessage } from '../services/taxTips.js';
 import { t, resolveLanguageFromInput } from '../translations/index.js';
-import { parseNairaInput, formatNaira } from '../utils/formatter.js';
+import { parseNairaInput, formatNaira, maskPhoneNumber, isNegativeAnswer } from '../utils/formatter.js';
 import logger from '../utils/logger.js';
-import { maskPhoneNumber } from '../utils/formatter.js';
 
 // Friendly fallback for unhandled errors
 const ERROR_FALLBACK = "Sorry, something went wrong on my end. Please try again in a moment. 🙏";
@@ -220,11 +219,14 @@ async function handleUserTypeSelection(from, text, session) {
 
 /**
  * Generic handler for numeric input steps in Flow A.
- * Parses the amount, saves to session.taxData, and advances to the next state.
+ * Accepts a Naira amount OR a negative/zero answer (e.g. "no", "none", "nah").
+ * Negative answers are treated as zero — valid for optional allowance fields.
  */
 async function handleFlowAStep(from, text, session, fieldName) {
   const { language: lang } = session;
-  const amount = parseNairaInput(text);
+
+  // Treat "no / none / nah / 0 / mba / babu / …" as zero for optional fields
+  const amount = isNegativeAnswer(text) ? 0 : parseNairaInput(text);
 
   if (amount === null) {
     await sendMessage(from, t('invalidAmount', lang));
@@ -281,14 +283,14 @@ async function handleFlowANhf(from, text, session) {
 /** Flow A: Final step — life assurance → calculate and show result */
 async function handleFlowAFinalStep(from, text, session) {
   const { language: lang, taxData } = session;
-  const amount = parseNairaInput(text);
+  const amount = isNegativeAnswer(text) ? 0 : parseNairaInput(text);
 
-  if (amount === null && text.trim() !== '0') {
+  if (amount === null) {
     await sendMessage(from, t('invalidAmount', lang));
     return;
   }
 
-  const lifeAssurancePremium = amount ?? 0;
+  const lifeAssurancePremium = amount;
   updateSession(from, { taxData: { lifeAssurancePremium } });
 
   // Re-read updated session
@@ -330,7 +332,7 @@ async function handleFlowAFinalStep(from, text, session) {
 
 async function handleFlowBStep(from, text, session, fieldName) {
   const { language: lang } = session;
-  const amount = parseNairaInput(text);
+  const amount = isNegativeAnswer(text) ? 0 : parseNairaInput(text);
 
   if (amount === null) {
     await sendMessage(from, t('invalidAmount', lang));
@@ -351,7 +353,7 @@ async function handleFlowBStep(from, text, session, fieldName) {
 /** Flow B: Final step — pension → calculate and show result */
 async function handleFlowBFinalStep(from, text, session) {
   const { language: lang, taxData } = session;
-  const amount = parseNairaInput(text);
+  const amount = isNegativeAnswer(text) ? 0 : parseNairaInput(text);
   const pension = amount ?? 0;
 
   updateSession(from, { taxData: { customPension: pension } });
