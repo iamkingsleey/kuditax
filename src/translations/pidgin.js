@@ -60,6 +60,12 @@ const pidgin = {
 
   escalation:       "This matter don pass my hand small — I recommend you talk to registered accountant. You want make I connect you? *(Coming soon 🔜)*",
 
+  filingPackOffer:
+    "You want make I send your *Filing Pack*? 📋\nI go send you PDF wey get your tax figures plus step-by-step guide to file for TaxPro-Max.\n\nReply *yes* to collect am or *menu* to go back.",
+
+  taxProMaxGuide:
+    "*How to file for TaxPro-Max* 📋\n\n1️⃣ Go taxpromax.firs.gov.ng\n2️⃣ Log in with your TIN and password\n   (First time? Click Register, use your TIN)\n3️⃣ Click *File Returns*\n4️⃣ Choose *Personal Income Tax Annual Return*\n5️⃣ Enter the figures from your PDF\n6️⃣ Check the tax wey dem calculate\n7️⃣ Pay with the Remita number wey dem give you\n8️⃣ Download your receipt ✅\n\n📅 Deadline: 31 March every year\n\nYou need TIN? Reply *tin* and I go guide you.",
+
   backToMenu:       "Anything else I fit help you? Reply *menu* to see all options.",
   unknownChoice:    "I no understand that. Abeg reply with number from the menu, or type *menu* to see options again.",
 };

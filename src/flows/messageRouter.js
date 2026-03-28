@@ -14,11 +14,11 @@ import {
   getOrCreateSession,
   updateSession,
 } from '../services/sessionManager.js';
-import { sendMessage } from '../services/whatsapp.js';
 import { getAgentReply } from '../services/claudeAgent.js';
 import { calculateSalaryTax } from '../services/taxCalculator.js';
 import { buildTipsMessage } from '../services/taxTips.js';
 import { t, resolveLanguageFromInput } from '../translations/index.js';
+import { generateTaxSummaryPdf } from '../services/pdfGenerator.js';
 import { parseNairaInput, formatNaira, maskPhoneNumber, isNegativeAnswer } from '../utils/formatter.js';
 import logger from '../utils/logger.js';
 
@@ -110,6 +110,9 @@ async function dispatchToHandler(from, text, session) {
 
     // After result is shown — handle follow-up actions
     case STATES.RESULT_DISPLAYED:      return handlePostResult(from, text, session);
+
+    // Filing pack offer sent — awaiting user choice
+    case STATES.AWAITING_FILING_PACK:  return handleFilingPackChoice(from, text, session);
 
     default:
       logger.warn('Unknown session state — resetting', {
@@ -307,7 +310,7 @@ async function handleFlowAFinalStep(from, text, session) {
     customPension:      td.customPension,
   });
 
-  updateSession(from, { taxData: { lastResult: result }, currentState: STATES.RESULT_DISPLAYED });
+  updateSession(from, { taxData: { lastResult: result } });
 
   await sendMessage(from, formatTaxResult(result, lang));
 
@@ -323,7 +326,9 @@ async function handleFlowAFinalStep(from, text, session) {
   });
 
   if (tips) await sendMessage(from, tips);
-  await sendMessage(from, t('taxDisclaimer', lang));
+
+  // Disclaimer + filing pack offer combined — respects the 3-message cap
+  await sendFilingPackOffer(from, lang);
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +378,7 @@ async function handleFlowBFinalStep(from, text, session) {
     customPension: pension,
   });
 
-  updateSession(from, { taxData: { lastResult: result }, currentState: STATES.RESULT_DISPLAYED });
+  updateSession(from, { taxData: { lastResult: result } });
 
   await sendMessage(from, formatTaxResult(result, lang));
 
@@ -388,7 +393,7 @@ async function handleFlowBFinalStep(from, text, session) {
   });
 
   if (tips) await sendMessage(from, tips);
-  await sendMessage(from, t('taxDisclaimer', lang));
+  await sendFilingPackOffer(from, lang);
 }
 
 // ---------------------------------------------------------------------------
@@ -442,7 +447,7 @@ async function handleFlowCFinalStep(from, text, session) {
 
   await sendMessage(from, formatTaxResult(result, lang));
   await sendMessage(from, t('escalation', lang));
-  await sendMessage(from, t('taxDisclaimer', lang));
+  await sendFilingPackOffer(from, lang);
 }
 
 // ---------------------------------------------------------------------------
@@ -470,19 +475,89 @@ async function handleAiConversation(from, text, session) {
 // ---------------------------------------------------------------------------
 
 async function handlePostResult(from, text, session) {
-  const { language: lang } = session;
+  // Primary post-result flow now goes through AWAITING_FILING_PACK.
+  // This handler is a catch-all for users who somehow land in RESULT_DISPLAYED
+  // without the filing pack offer (e.g. legacy sessions, edge cases).
+  updateSession(from, { currentState: STATES.AI_CONVERSATION });
+  await handleAiConversation(from, text, getOrCreateSession(from));
+}
+
+// ---------------------------------------------------------------------------
+// Filing Pack
+// ---------------------------------------------------------------------------
+
+/**
+ * Sends the filing pack offer message and advances state to AWAITING_FILING_PACK.
+ * Combined with the disclaimer to stay within the 3-message-per-response cap.
+ *
+ * @param {string} from - Sender phone number
+ * @param {string} lang - Language code
+ */
+async function sendFilingPackOffer(from, lang) {
+  // Combine disclaimer + filing pack offer into one message to respect the 3-msg cap
+  const combined = `${t('taxDisclaimer', lang)}\n\n${t('filingPackOffer', lang)}`;
+  await sendMessage(from, combined);
+  updateSession(from, { currentState: STATES.AWAITING_FILING_PACK });
+}
+
+/**
+ * Handles the user's response to the filing pack offer.
+ * - "yes / yeah / yep / send it / ok / ee / eh" → generate PDF, send it, send guide
+ * - "no / menu / cancel / nope / mba / babu" → return to main menu
+ * - anything else → AI conversation
+ *
+ * @param {string} from - Sender phone number
+ * @param {string} text - User's reply
+ * @param {object} session - Current session
+ */
+async function handleFilingPackChoice(from, text, session) {
+  const { language: lang, taxData } = session;
   const lower = text.toLowerCase().trim();
 
-  // User wants to recalculate with tips applied → restart flow
-  if (['yes', 'yeah', 'yep', 'ee', 'eh', 'bẹ́ẹ̀ni'].includes(lower)) {
-    updateSession(from, { currentState: STATES.AWAITING_USER_TYPE });
-    await sendMessage(from, t('askUserType', lang));
+  const YES_ANSWERS = new Set(['yes', 'yeah', 'yep', 'send it', 'ok', 'okay', 'ee', 'eh', 'bẹ́ẹ̀ni']);
+  const NO_ANSWERS  = new Set(['no', 'nope', 'cancel', 'menu', 'mba', "a'a", 'babu', 'bẹ́ẹ̀kọ']);
+
+  if (YES_ANSWERS.has(lower)) {
+    await deliverFilingPack(from, lang, taxData.lastResult);
     return;
   }
 
-  // Otherwise treat as a free-form question
+  if (NO_ANSWERS.has(lower)) {
+    return handleMenuReset(from, session);
+  }
+
+  // Unrecognised input — route to AI for help
   updateSession(from, { currentState: STATES.AI_CONVERSATION });
   await handleAiConversation(from, text, getOrCreateSession(from));
+}
+
+/**
+ * Generates the PDF, sends it as a WhatsApp document, then sends the
+ * TaxPro-Max step-by-step guide. Falls back to a formatted text message
+ * if PDF generation fails so the user is never left without their figures.
+ *
+ * @param {string} from - Sender phone number
+ * @param {string} lang - Language code
+ * @param {import('../services/taxCalculator.js').FullTaxCalculation} taxResult
+ */
+async function deliverFilingPack(from, lang, taxResult) {
+  const TAX_YEAR     = 2025;
+  const PDF_FILENAME = `kuditax-tax-summary-${TAX_YEAR}.pdf`;
+  const PDF_CAPTION  = 'Your Kuditax Tax Summary 📊 Use these figures to file your return at taxpromax.firs.gov.ng';
+
+  try {
+    const filePath = await generateTaxSummaryPdf(taxResult, lang);
+    await sendDocument(from, filePath, PDF_FILENAME, PDF_CAPTION);
+  } catch (pdfError) {
+    // PDF failed — send a text fallback so the user still gets their figures
+    logger.error('PDF generation/send failed — sending text fallback', { error: pdfError.message });
+    await sendMessage(from, formatTaxResult(taxResult, lang));
+  }
+
+  // Always send the filing guide after the PDF (or fallback)
+  await sendMessage(from, t('taxProMaxGuide', lang));
+  updateSession(from, { currentState: STATES.AWAITING_MENU_CHOICE });
+  await sendMessage(from, t('backToMenu', lang));
 }
 
 // ---------------------------------------------------------------------------

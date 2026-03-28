@@ -60,6 +60,12 @@ const igbo = {
 
   escalation:       "Ihe a adịghị mfe, achọrọ m ịhụ na ị nweta ezi aka. A na-atụ m aro ka ị kpọtụrụ akawụntị. Ị chọrọ ka m jikọọ gị? *(Na-abịa n'oge na-adịghị anya 🔜)*",
 
+  filingPackOffer:
+    "Ị chọrọ *Filing Pack* gị? 📋\nAga m ezitere gị PDF nke nchịkọta ụtụ isi gị yana nduzi usoro ntinye aka na TaxPro-Max.\n\nZa *yes* iji nweta ya ma ọ bụ *menu* iji laghachi.",
+
+  taxProMaxGuide:
+    "*Etu esi etinye aka na TaxPro-Max* 📋\n\n1️⃣ Gaa taxpromax.firs.gov.ng\n2️⃣ Banye ya TIN gị na paswọọdụ gị\n   (Oge mbụ? Pịa Register, jiri TIN gị)\n3️⃣ Pịa *File Returns*\n4️⃣ Họrọ *Personal Income Tax Annual Return*\n5️⃣ Tinye ego ndị sitere n'PDF gị\n6️⃣ Lelee ụtụ isi a gbakọọtara\n7️⃣ Kwụọ site na nọmba Remita a nyere gị\n8️⃣ Budata rịsitị gị ✅\n\n📅 Ọnọdụ ikpeazụ: 31 Machị kwa afọ\n\nỌ dị mma ị chọrọ TIN? Zaa *tin* ka m duzie gị.",
+
   backToMenu:       "Ihe ọzọ m nwere ike inyere gị aka? Zaa *menu* iji hụ nhọrọ niile.",
   unknownChoice:    "Achịkọtabeghị m nke ahụ. Biko zaa ọnụọgụ site n'menu, ma ọ bụ pịa *menu* iji hụ nhọrọ ọzọ.",
 };

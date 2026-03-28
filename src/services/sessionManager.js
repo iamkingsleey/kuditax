@@ -79,6 +79,9 @@ const STATES = {
 
   // Result displayed — awaiting next action
   RESULT_DISPLAYED:       'RESULT_DISPLAYED',
+
+  // Filing pack offer sent — awaiting user's yes/no response
+  AWAITING_FILING_PACK:   'AWAITING_FILING_PACK',
 };
 
 // ---------------------------------------------------------------------------

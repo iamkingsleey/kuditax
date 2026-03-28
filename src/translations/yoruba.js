@@ -60,6 +60,12 @@ const yoruba = {
 
   escalation:       "Ìpọ̀ndà yìí ti díẹ̀ ní ìdàrúdàpọ̀, mo fẹ́ rí i pé o gba ìdáhùn tó tọ̀. Mo dábàá kí o bá oníṣirò tó ní ìwé-àṣẹ sọ̀rọ̀. Ṣé o fẹ́ kí n so ọ́ pọ̀ pẹ̀lú ọ̀kan? *(Ó ń bọ̀ ní kíákíá 🔜)*",
 
+  filingPackOffer:
+    "Ṣé o fẹ́ *Filing Pack* rẹ? 📋\nMo máa ránnṣẹ́ PDF àkójọpọ̀ owó-ori rẹ àti ìtọ́sọ́nà ìgbésẹ̀-kọọkan fún fífi sílẹ̀ lórí TaxPro-Max.\n\nDáhùn *yes* láti gba rẹ̀ tàbí *menu* láti padà.",
+
+  taxProMaxGuide:
+    "*Bí a ṣe máa ń ṣàgbékalẹ̀ lórí TaxPro-Max* 📋\n\n1️⃣ Lọ sí taxpromax.firs.gov.ng\n2️⃣ Wọlé pẹ̀lú TIN rẹ àti ọ̀rọ̀ aṣínà rẹ\n   (Ìgbà àkọ́kọ́? Tẹ Register, lò TIN rẹ)\n3️⃣ Tẹ *File Returns*\n4️⃣ Yan *Personal Income Tax Annual Return*\n5️⃣ Tẹ àwọn nọ́mbà láti inú PDF rẹ\n6️⃣ Ṣàyẹ̀wò owó-ori tí a ṣe ìṣirò\n7️⃣ San owó rẹ nípa nọ́mbà Remita tí a pèsè\n8️⃣ Ṣe ìgbàsí àwọn ìwé àfihàn rẹ ✅\n\n📅 Ọjọ́ ìparí: 31 March ní ọdún kọ̀ọ̀kan\n\nṢé o nílò TIN? Dáhùn *tin* kí n tọ́ ọ sọ́nà.",
+
   backToMenu:       "Nkan míì ni mo lè ràn ọ́ lọ́wọ́? Dáhùn *menu* láti rí gbogbo àwọn àṣàyàn.",
   unknownChoice:    "미 kò gbọ́ ìdáhùn yẹn. Jọ̀wọ́ dáhùn pẹ̀lú nọ́mbà láti inú menu, tàbí tẹ *menu* láti rí àwọn àṣàyàn lẹ́ẹ̀kan si.",
 };

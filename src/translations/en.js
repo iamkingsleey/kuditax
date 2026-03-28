@@ -67,6 +67,14 @@ const en = {
   // Escalation
   escalation:       "This situation is a bit complex and I want to make sure you get it right. I'd recommend speaking to a registered accountant. Would you like me to connect you to one? *(Coming soon 🔜)*",
 
+  // Filing Pack offer (sent immediately after the tax result + disclaimer)
+  filingPackOffer:
+    "Would you like your *Filing Pack*? 📋\nI'll send you a PDF summary of your tax figures plus a step-by-step guide to file on TaxPro-Max.\n\nReply *yes* to get it or *menu* to go back.",
+
+  // Step-by-step TaxPro-Max guide (sent as a follow-up after the PDF)
+  taxProMaxGuide:
+    "*How to file on TaxPro-Max* 📋\n\n1️⃣ Go to taxpromax.firs.gov.ng\n2️⃣ Log in with your TIN and password\n   (First time? Click Register and use your TIN)\n3️⃣ Click *File Returns*\n4️⃣ Select *Personal Income Tax Annual Return*\n5️⃣ Enter the figures from your PDF\n6️⃣ Review the computed tax\n7️⃣ Pay via the Remita reference generated\n8️⃣ Download your receipt ✅\n\n📅 Deadline: 31 March each year\n\nNeed your TIN? Reply *tin* and I'll guide you.",
+
   // Navigation
   backToMenu:       "What else can I help you with? Reply *menu* to see all options.",
   unknownChoice:    "I didn't understand that choice. Please reply with a number from the menu, or type *menu* to see the options again.",

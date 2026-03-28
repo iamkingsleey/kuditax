@@ -60,6 +60,12 @@ const hausa = {
 
   escalation:       "Wannan yanayi yana da ɗan rikitarwa, ina so in tabbatar da ka samu shi daidai. Na ba da shawarar yin magana da ƙwararren mai lissafi. Kuna son in haɗa ku da ɗaya? *(Zuwa nan da nan 🔜)*",
 
+  filingPackOffer:
+    "Kuna son ku sami *Filing Pack* tunanku? 📋\nZa ni aika muku PDF na taƙaitaccen harajin ku tare da jagora don shigarwa akan TaxPro-Max.\n\nAmsa *yes* don samun sa ko *menu* don komawa.",
+
+  taxProMaxGuide:
+    "*Yadda ake shigarwa akan TaxPro-Max* 📋\n\n1️⃣ Je taxpromax.firs.gov.ng\n2️⃣ Shiga da TIN ɗinka da kalmar sirri\n   (Karo na farko? Danna Register, yi amfani da TIN ɗinka)\n3️⃣ Danna *File Returns*\n4️⃣ Zaɓi *Personal Income Tax Annual Return*\n5️⃣ Shigar bayanai daga PDF ɗinka\n6️⃣ Duba harajin da aka ƙididdige\n7️⃣ Biya ta lambar Remita da aka samar\n8️⃣ Sauke takardar karbar kuɗi ✅\n\n📅 Ƙarshen lokaci: 31 Maris kowace shekara\n\nKana buƙatar TIN? Amsa *tin* in ba ka jagora.",
+
   backToMenu:       "Akwai wani abu da nake iya taimaka muku? Amsa *menu* don ganin duk zaɓuɓɓuka.",
   unknownChoice:    "Ban fahimci wannan ba. Da fatan za a amsa da lamba daga menu, ko rubuta *menu* don ganin zaɓuɓɓuka.",
 };

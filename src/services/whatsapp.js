@@ -1,14 +1,18 @@
 /**
  * @file whatsapp.js
- * @description Meta Cloud API client for sending WhatsApp messages.
+ * @description Meta Cloud API client for sending WhatsApp messages and documents.
  *              Handles message splitting for responses > 4,000 characters,
  *              enforces the 500ms delay between split messages, and validates
  *              messages before sending to avoid empty message errors.
+ *              Also handles PDF document upload via the Meta media endpoint
+ *              and sends them as document messages.
  * @author Kuditax Engineering
  * @updated 2026-03-28
  */
 
 import axios from 'axios';
+import { readFileSync } from 'fs';
+import { unlink } from 'fs/promises';
 import config from '../config.js';
 import logger from '../utils/logger.js';
 import { maskPhoneNumber } from '../utils/formatter.js';
@@ -179,4 +183,108 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export { sendMessage, markMessageAsRead, splitMessage };
+// ---------------------------------------------------------------------------
+// Document Sending (PDF Filing Pack)
+// ---------------------------------------------------------------------------
+
+/**
+ * Uploads a local file to the Meta media endpoint and returns its media ID.
+ * Uses Node 20's built-in fetch + FormData — no extra dependencies needed.
+ *
+ * @param {string} filePath - Absolute path to the file to upload
+ * @param {string} filename - The filename to use in the multipart upload
+ * @returns {Promise<string>} The media ID returned by Meta
+ * @throws {Error} On upload failure
+ */
+async function uploadMediaFile(filePath, filename) {
+  const fileBuffer = readFileSync(filePath);
+  const blob = new Blob([fileBuffer], { type: 'application/pdf' });
+
+  const form = new FormData();
+  form.append('file', blob, filename);
+  form.append('type', 'application/pdf');
+  form.append('messaging_product', 'whatsapp');
+
+  const url = `${whatsapp.baseUrl}/${whatsapp.apiVersion}/${whatsapp.phoneNumberId}/media`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${whatsapp.accessToken}` },
+    body: form,
+  });
+
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({}));
+    throw new Error(`Media upload failed (${response.status}): ${errBody.error?.message ?? 'unknown'}`);
+  }
+
+  const data = await response.json();
+  return data.id;
+}
+
+/**
+ * Sends a document message to a WhatsApp user using an already-uploaded media ID.
+ *
+ * @param {string} to - Recipient phone number (E.164, without +)
+ * @param {string} mediaId - Media ID returned by the Meta upload endpoint
+ * @param {string} filename - Filename shown to the recipient (e.g. "kuditax-tax-summary-2025.pdf")
+ * @param {string} caption - Caption text displayed below the document
+ * @returns {Promise<void>}
+ */
+async function sendDocumentMessage(to, mediaId, filename, caption) {
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'document',
+    document: { id: mediaId, caption, filename },
+  };
+  await axios.post(getApiUrl(), payload, { headers: getApiHeaders() });
+}
+
+/**
+ * Deletes a temp file silently. Non-fatal — logs a warning on failure.
+ *
+ * @param {string} filePath - Absolute path of the file to delete
+ * @returns {Promise<void>}
+ */
+async function deleteTempFile(filePath) {
+  try {
+    await unlink(filePath);
+  } catch (err) {
+    logger.warn('Failed to delete temp PDF file', { error: err.message });
+  }
+}
+
+/**
+ * Uploads a local PDF file to the Meta media endpoint, sends it as a
+ * WhatsApp document message to the recipient, and then deletes the temp file.
+ * The file is always deleted in the finally block — even if sending fails.
+ *
+ * NDPR: The filePath is never logged. The recipient's phone number is masked.
+ *
+ * @param {string} to - Recipient phone number (E.164, without +)
+ * @param {string} filePath - Absolute path to the PDF file to send
+ * @param {string} filename - Filename shown to the recipient
+ * @param {string} caption - Caption text displayed below the document
+ * @returns {Promise<void>}
+ * @throws {Error} On upload or send failure (after cleanup)
+ */
+async function sendDocument(to, filePath, filename, caption) {
+  try {
+    const mediaId = await uploadMediaFile(filePath, filename);
+    await sendDocumentMessage(to, mediaId, filename, caption);
+    logger.info('Document sent successfully', { to: maskPhoneNumber(to), filename });
+  } catch (error) {
+    logger.error('Failed to send document', {
+      to: maskPhoneNumber(to),
+      filename,
+      error: error.message,
+    });
+    throw error;
+  } finally {
+    // Always clean up — temp files must never persist (NDPR storage limitation)
+    await deleteTempFile(filePath);
+  }
+}
+
+export { sendMessage, markMessageAsRead, splitMessage, sendDocument };
