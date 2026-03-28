@@ -14,6 +14,7 @@ import {
   getOrCreateSession,
   updateSession,
 } from '../services/sessionManager.js';
+import { sendMessage, sendDocument } from '../services/whatsapp.js';
 import { getAgentReply } from '../services/claudeAgent.js';
 import { calculateSalaryTax } from '../services/taxCalculator.js';
 import { buildTipsMessage } from '../services/taxTips.js';
@@ -24,6 +25,40 @@ import logger from '../utils/logger.js';
 
 // Friendly fallback for unhandled errors
 const ERROR_FALLBACK = "Sorry, something went wrong on my end. Please try again in a moment. 🙏";
+
+// ---------------------------------------------------------------------------
+// Filing Pack Intent Detectors
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if the user's message indicates they want their filing pack / PDF.
+ * Uses substring matching so partial phrases like "send me the pdf" still match.
+ *
+ * @param {string} text - Raw user input (any case)
+ * @returns {boolean}
+ */
+function isFilingPackRequest(text) {
+  const lower = text.toLowerCase().trim();
+  const KEYWORDS = [
+    'yes', 'yeah', 'yep', 'ok', 'okay', 'send', 'pdf', 'share',
+    'download', 'filing', 'pack', 'summary', 'report', 'sure',
+    'go ahead', 'ee', 'eh', 'bẹ́ẹ̀ni', 'oya', 'abeg send',
+  ];
+  return KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+/**
+ * Returns true if the user's message indicates they do NOT want their filing pack.
+ * Uses substring matching for natural phrasing like "no thanks", "cancel it".
+ *
+ * @param {string} text - Raw user input (any case)
+ * @returns {boolean}
+ */
+function isFilingPackRejection(text) {
+  const lower = text.toLowerCase().trim();
+  const KEYWORDS = ['no', 'nope', 'cancel', 'menu', 'skip', 'later', 'mba', 'babu', 'bẹ́ẹ̀kọ'];
+  return KEYWORDS.some((kw) => lower.includes(kw));
+}
 
 // ---------------------------------------------------------------------------
 // Main Entry Point
@@ -75,6 +110,20 @@ async function dispatchToHandler(from, text, session) {
   // Global override: "menu" keyword always returns to main menu
   if (text.toLowerCase() === 'menu' && session.currentState !== STATES.AWAITING_LANGUAGE) {
     return handleMenuReset(from, session);
+  }
+
+  // Global PDF/filing pack intercept — fires at any state where the user has a
+  // completed calculation. Allows "send pdf", "filing pack", "share summary" etc.
+  // at any point in the conversation without needing to re-run the flow.
+  const PDF_STATES_EXCLUDED = [STATES.AWAITING_LANGUAGE, STATES.AWAITING_PRIVACY_ACK];
+  const lower = text.toLowerCase();
+  const isPdfKeyword = lower.includes('pdf') || lower.includes('filing pack') || lower.includes('share summary');
+  if (
+    isPdfKeyword &&
+    !PDF_STATES_EXCLUDED.includes(session.currentState) &&
+    session.taxData?.lastResult
+  ) {
+    return deliverFilingPack(from, session.language, session.taxData.lastResult);
   }
 
   switch (session.currentState) {
@@ -475,9 +524,21 @@ async function handleAiConversation(from, text, session) {
 // ---------------------------------------------------------------------------
 
 async function handlePostResult(from, text, session) {
-  // Primary post-result flow now goes through AWAITING_FILING_PACK.
-  // This handler is a catch-all for users who somehow land in RESULT_DISPLAYED
-  // without the filing pack offer (e.g. legacy sessions, edge cases).
+  const { language: lang, taxData } = session;
+
+  // Check if the user is asking for their filing pack before falling through to AI.
+  // This catches users who reply with "pdf", "send it", "yes" etc. after viewing results.
+  if (isFilingPackRequest(text)) {
+    if (taxData?.lastResult) {
+      return deliverFilingPack(from, lang, taxData.lastResult);
+    }
+
+    // No calculation on record — tell the user and show the menu
+    await sendMessage(from, "I don't have a recent tax calculation for you. Let's calculate your tax first.");
+    return handleMenuReset(from, session);
+  }
+
+  // Anything else — route to AI free-form conversation
   updateSession(from, { currentState: STATES.AI_CONVERSATION });
   await handleAiConversation(from, text, getOrCreateSession(from));
 }
@@ -514,15 +575,12 @@ async function handleFilingPackChoice(from, text, session) {
   const { language: lang, taxData } = session;
   const lower = text.toLowerCase().trim();
 
-  const YES_ANSWERS = new Set(['yes', 'yeah', 'yep', 'send it', 'ok', 'okay', 'ee', 'eh', 'bẹ́ẹ̀ni']);
-  const NO_ANSWERS  = new Set(['no', 'nope', 'cancel', 'menu', 'mba', "a'a", 'babu', 'bẹ́ẹ̀kọ']);
-
-  if (YES_ANSWERS.has(lower)) {
+  if (isFilingPackRequest(lower)) {
     await deliverFilingPack(from, lang, taxData.lastResult);
     return;
   }
 
-  if (NO_ANSWERS.has(lower)) {
+  if (isFilingPackRejection(lower)) {
     return handleMenuReset(from, session);
   }
 
